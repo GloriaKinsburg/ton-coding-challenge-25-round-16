@@ -1,0 +1,32 @@
+;; Filename: 故意错误触发器.tlk
+;; 合约 B：接收任何消息，并故意抛出错误 (触发 RichBounce)。
+
+#include "stdlib.tlk"
+
+;; 主要消息接收器函数
+() 消息接收器(int 余额, int 消息价值, cell 完整消息体, cell 消息内容体) impure {
+    
+    ;; 检查标志位以忽略传入的回弹消息
+    slice 消息解析器 = 完整消息体.begin_parse();
+    int 标志位 = 消息解析器.load_uint(6);
+    
+    if (标志位 & 1) {
+        "【B】错误触发器收到回弹，已忽略。" print;
+        return;
+    }
+    
+    ;; --- RichBounce 触发逻辑 ---
+    
+    "【B】错误触发器收到消息。故意引发受控故障 (RichBounce)." print;
+    
+    ;; 核心操作：抛出错误码 (666)
+    ;; 这会终止交易，并强制向发送方 (合约 A) 发送 RichBounce 消息。
+    throw(666); 
+    
+    ;; 抛出错误后，执行停止
+}
+
+;; 将标准的 recv_internal 映射到我们特定的接收函数
+() recv_internal(int 余额, int 消息价值, cell 完整消息体, cell 消息内容体) impure {
+    消息接收器(余额, 消息价值, 完整消息体, 消息内容体);
+}
