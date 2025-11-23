@@ -1,0 +1,64 @@
+;; Filename: 回弹消息处理者.tlk
+;; 合约 A：接收外部消息后，转发给合约 B；主要职责是处理来自 B 的 RichBounce 回弹消息。
+
+;; 引入标准库
+#include "stdlib.tlk"
+
+;; 定义处理 RichBounce 消息的函数
+() 处理回弹消息(cell 原始回弹体) impure inline {
+    ;; 将回弹消息体存储在 c4 寄存器中，用于状态检查或调试
+    c4 = 原始回弹体; 
+    
+    ;; 打印日志，确认成功捕获 RichBounce
+    "【A】回弹消息处理者成功接收 RichBounce。任务完成!" print;
+    
+    ;; 可选：从回弹体中解析 op code (RichBounce 通常为 0xFFFFFFFF)
+    slice 回弹体解析器 = 原始回弹体.begin_parse();
+    int 回弹操作码 = 回弹体解析器.load_uint(32);
+    "回弹操作码:" print_int; 回弹操作码 print_int;
+    
+    return;
+}
+
+;; 主接收函数，处理所有内部消息
+() recv_internal(int 余额, int 消息价值, cell 完整消息体, cell 消息内容体) impure {
+    
+    ;; 解析消息头部，检查标志位
+    slice 消息解析器 = 完整消息体.begin_parse();
+    int 标志位 = 消息解析器.load_uint(6);
+    
+    ;; 检查是否为回弹消息 (标志位的第 0 位为 1)
+    if (标志位 & 1) {
+        ;; 是回弹消息，调用专门的处理函数
+        处理回弹消息(消息内容体);
+        return;
+    }
+    
+    ;; --- 正常消息转发逻辑 ---
+    
+    ;; 目标合约 B 的地址 (占位符地址)
+    cell b_目标地址_cell = begin_cell().store_uint(0x3141592A, 32).end_cell(); 
+    slice b_目标地址 = b_目标地址_cell.begin_parse();
+
+    ;; 创建待转发消息的消息内容体 (使用独特的 op code: 0x54321)
+    cell 待发消息体 = begin_cell()
+        .store_uint(0x54321, 32) ;; 唯一的转发操作码
+        .store_ref(消息内容体)  ;; 存储原始消息负载
+        .end_cell();
+
+    ;; 构造原始消息并发送
+    ;; 发送模式 129 (1 | 128): 发送所有剩余余额，允许发送回弹消息
+    send_raw_message(
+        begin_cell()
+            .store_slice(b_目标地址)
+            .store_coins(0)             ;; 价值 (使用 0 配合 mode 1)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1) ;; 跳过字段
+            .store_uint(0, 1) ;; 无初始化
+            .store_uint(0, 1) ;; 无数据
+            .store_ref(待发消息体)
+        .end_cell(), 
+        129
+    );
+
+    "【A】回弹消息处理者已发送转发消息给错误触发器。等待回弹中..." print;
+}
